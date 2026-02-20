@@ -1,30 +1,41 @@
-# PDF Ordner-Drucker (Windows) – print_pdfs_win.py
+# PDF Ordner-Drucker (Windows) – print_pdfs.py
 
 Dieses Tool druckt alle PDFs in einem Ordner unter Windows – ohne manuell jedes PDF zu öffnen.
 
+---
+
 ## Features
+
 - Druckt alle PDFs in einem Ordner (optional rekursiv)
 - Parameter für:
-  - Duplex (simplex/duplex long-edge/short-edge)
-  - Farbe (color/mono)
-  - Seiten-Auswahl (z.B. "1-3,5,7-")
+  - Duplex (simplex / long-edge / short-edge)
+  - Farbe (color / mono)
+  - Seiten-Auswahl (z.B. "1-3,5,7-" oder "1,3")
   - Kopien
+  - PDF-Filter (z.B. nur `*_invoice.pdf`)
+  - Umgekehrte Reihenfolge der (gefilterten) Dateien (`--reverse`)
 - Nutzt SumatraPDF.exe für zuverlässiges "silent printing"
-- Setzt Duplex/Farbe über Windows-Drucker DEVMODE (wenn Treiber das unterstützt)
-- Seiten-Auswahl wird robust umgesetzt, indem die gewünschten Seiten in eine temporäre PDF extrahiert werden
+- Setzt Duplex/Farbe/Seiten/Kopien pro Job per SumatraPDF `-print-settings` (keine Admin-Rechte nötig)
+
+---
 
 ## Voraussetzungen
+
 1) Windows 10/11  
-2) Python 3.9+ empfohlen  
-3) SumatraPDF installiert (empfohlen): https://www.sumatrapdfreader.org/  
-4) Python-Pakete:
-   - pywin32
-   - pypdf
+2) Python 3.9+  
+3) SumatraPDF installiert  
+4) Python-Pakete (keine Admin-Rechte nötig):
+   - (keine zwingenden Pakete; Script nutzt Standardbibliothek)
+
+SumatraPDF: https://www.sumatrapdfreader.org/
+
+---
 
 ## Installation
 
+```powershell
 python -m pip install --upgrade pip
-pip install pywin32 pypdf
+```
 
 ## Nutzung
 Alle PDFs im Ordner drucken (Default-Drucker)

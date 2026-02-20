@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
+r"""
 print_pdfs.py (Windows)
 
 Druckt alle PDFs in einem Ordner.
@@ -194,6 +194,13 @@ def main() -> int:
     )
 
     parser.add_argument("--dry-run", action="store_true", help="Nur anzeigen, nichts drucken")
+
+    parser.add_argument(
+        "--reverse",
+        action="store_true",
+        help="Gefilterte PDFs in umgekehrter Reihenfolge drucken",
+    )
+
     args = parser.parse_args()
 
     folder = Path(args.folder).expanduser().resolve()
@@ -234,6 +241,10 @@ def main() -> int:
         return 2
 
     pdfs = list_pdfs(folder, args.recursive, args.filter, args.exclude)
+
+    if args.reverse:
+        pdfs = list(reversed(pdfs))
+
     if not pdfs:
         print(f"Keine passenden PDFs gefunden in: {folder}")
         return 0
