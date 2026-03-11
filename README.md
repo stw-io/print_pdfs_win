@@ -11,6 +11,7 @@ Dieses Tool druckt alle PDFs in einem Ordner unter Windows – ohne manuell jede
   - Duplex (simplex / long-edge / short-edge)
   - Farbe (color / mono)
   - Seiten-Auswahl (z.B. "1-3,5,7-" oder "1,3")
+  - Optional: fehlende Seiten als leere Seiten drucken (`--print-empty`)
   - Kopien
   - PDF-Filter (z.B. nur `*_invoice.pdf`)
   - Umgekehrte Reihenfolge der (gefilterten) Dateien (`--reverse`)
@@ -57,6 +58,10 @@ Nur bestimmte Seiten (z.B. 1-3, 5, ab 7 bis Ende)
 ```powershell
 python .\print_pdfs_win.py "C:\PDFs" --pages "1-3,5,7-"
 ```
+Bestimmte Seiten drucken und fehlende Seiten als leer ergänzen
+```powershell
+python .\print_pdfs_win.py "C:\PDFs" --pages "1,3,7-10" --print-empty
+```
 Mehrere Kopien
 ```powershell
 python .\print_pdfs_win.py "C:\PDFs" --copies 2
@@ -99,6 +104,11 @@ pip install pywin32
 Seiten-Parsing Fehler
 
 Erlaubtes Format: "1-3,5,7-" (Komma-getrennt, Bereiche mit "-")
+
+Hinweis zu `--print-empty`
+
+Wenn `--print-empty` aktiv ist, muss `--pages` eine endliche Liste sein (z.B. `1,3,7-10`).
+Offene Bereiche wie `7-` sind dabei nicht erlaubt, weil die Anzahl fehlender Seiten sonst nicht bestimmbar ist.
 
 
 # PDF-Filter (nur bestimmte Dateien drucken)
