@@ -19,11 +19,13 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 # -------------------- SumatraPDF Finden --------------------
@@ -138,6 +140,103 @@ def build_sumatra_print_settings(duplex: str, color: str, pages: Optional[str], 
     return ",".join(parts) if parts else None
 
 
+def parse_pages_for_print_empty(pages: str) -> List[int]:
+    """
+    Parst eine Seitenangabe wie "1,3-5" in eine konkrete Seitenliste.
+    Für --print-empty sind nur endliche Angaben erlaubt (kein "7-").
+    """
+    result: List[int] = []
+    tokens = [t.strip() for t in pages.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError("Leere --pages Angabe.")
+
+    for token in tokens:
+        if "-" not in token:
+            if not token.isdigit():
+                raise ValueError(f"Ungültige Seite: '{token}'")
+            page = int(token)
+            if page < 1:
+                raise ValueError(f"Ungültige Seite (<1): '{token}'")
+            result.append(page)
+            continue
+
+        m = re.fullmatch(r"(\d+)-(\d*)", token)
+        if not m:
+            raise ValueError(f"Ungültiger Bereich: '{token}'")
+
+        start = int(m.group(1))
+        end_raw = m.group(2)
+        if not end_raw:
+            raise ValueError(
+                "Offene Bereiche wie '7-' sind mit --print-empty nicht erlaubt. "
+                "Bitte einen endlichen Bereich wie '7-10' verwenden."
+            )
+
+        end = int(end_raw)
+        if start < 1 or end < 1:
+            raise ValueError(f"Ungültiger Bereich (<1): '{token}'")
+        if end < start:
+            raise ValueError(f"Ungültiger Bereich (Ende < Start): '{token}'")
+
+        result.extend(range(start, end + 1))
+
+    return result
+
+
+def compress_pages(pages: List[int]) -> str:
+    """Komprimiert [1,2,3,5,7,8] zu '1-3,5,7-8'."""
+    if not pages:
+        return ""
+
+    ranges: List[Tuple[int, int]] = []
+    start = prev = pages[0]
+    for page in pages[1:]:
+        if page == prev + 1:
+            prev = page
+            continue
+        ranges.append((start, prev))
+        start = prev = page
+    ranges.append((start, prev))
+
+    parts = []
+    for a, b in ranges:
+        parts.append(f"{a}" if a == b else f"{a}-{b}")
+    return ",".join(parts)
+
+
+def get_pdf_page_count(pdf_path: Path) -> int:
+    try:
+        from pypdf import PdfReader
+    except ImportError as e:
+        raise RuntimeError(
+            "Für --print-empty wird das Python-Paket 'pypdf' benötigt. "
+            "Installiere es mit: pip install pypdf"
+        ) from e
+
+    reader = PdfReader(str(pdf_path))
+    return len(reader.pages)
+
+
+def create_blank_pdf(page_count: int) -> Path:
+    try:
+        from pypdf import PdfWriter
+    except ImportError as e:
+        raise RuntimeError(
+            "Für --print-empty wird das Python-Paket 'pypdf' benötigt. "
+            "Installiere es mit: pip install pypdf"
+        ) from e
+
+    writer = PdfWriter()
+    for _ in range(page_count):
+        writer.add_blank_page(width=595, height=842)  # A4 in pt
+
+    with tempfile.NamedTemporaryFile(prefix="print-empty-", suffix=".pdf", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    with tmp_path.open("wb") as f:
+        writer.write(f)
+    return tmp_path
+
+
 def print_with_sumatra(sumatra_exe: str, pdf_path: Path, printer_name: str, print_settings: Optional[str]) -> None:
     """
     Druckt per SumatraPDF silent mit optionalen -print-settings.
@@ -178,6 +277,11 @@ def main() -> int:
         help="Farbmodus (über Sumatra -print-settings)",
     )
     parser.add_argument("--pages", type=str, default=None, help='Seiten z.B. "1-3,5,7-" oder "1,3" (1-basiert)')
+    parser.add_argument(
+        "--print-empty",
+        action="store_true",
+        help="Mit --pages: fehlende Seiten als leere Seite(n) nachdrucken",
+    )
     parser.add_argument("--copies", type=int, default=1, help="Anzahl Kopien (Standard 1)")
 
     parser.add_argument(
@@ -258,6 +362,7 @@ def main() -> int:
     print(f"Duplex:   {args.duplex}")
     print(f"Farbe:    {args.color}")
     print(f"Seiten:   {args.pages or 'alle'}")
+    print(f"Leer:     {args.print_empty}")
     print(f"Kopien:   {args.copies}")
     print(f"Filter:   {', '.join(args.filter) if args.filter else '-'}")
     print(f"Exclude:  {', '.join(args.exclude) if args.exclude else '-'}")
@@ -268,11 +373,46 @@ def main() -> int:
     for i, pdf in enumerate(pdfs, start=1):
         print(f"[{i}/{len(pdfs)}] {pdf.name}")
         try:
+            if args.print_empty and not args.pages:
+                print("  -> Hinweis: --print-empty ohne --pages hat keine Wirkung.")
+
+            pdf_settings = sumatra_settings
+            missing_pages = 0
+            if args.print_empty and args.pages:
+                requested_pages = parse_pages_for_print_empty(args.pages)
+                total_pages = get_pdf_page_count(pdf)
+                existing_pages = [p for p in requested_pages if p <= total_pages]
+                missing_pages = len(requested_pages) - len(existing_pages)
+
+                existing_expr = compress_pages(existing_pages)
+                pdf_settings = build_sumatra_print_settings(args.duplex, args.color, existing_expr or None, args.copies)
+                print(
+                    f"  -> Seiten im PDF: {total_pages}, vorhanden: {len(existing_pages)}, fehlend: {missing_pages}"
+                )
+
             if args.dry_run:
-                print(f"  -> würde drucken: {pdf}")
+                if pdf_settings:
+                    print(f"  -> würde drucken: {pdf} (Settings: {pdf_settings})")
+                else:
+                    print(f"  -> überspringe Original-PDF (keine vorhandenen Seiten aus --pages)")
+
+                if missing_pages > 0:
+                    print(f"  -> würde zusätzlich {missing_pages} leere Seite(n) drucken")
             else:
-                print_with_sumatra(sumatra, pdf, printer, sumatra_settings)
-                print("  -> Druckauftrag an Spooler übergeben.")
+                if pdf_settings:
+                    print_with_sumatra(sumatra, pdf, printer, pdf_settings)
+                    print("  -> Druckauftrag an Spooler übergeben (Original-PDF).")
+                else:
+                    print("  -> Original-PDF übersprungen (keine vorhandenen Seiten aus --pages).")
+
+                if missing_pages > 0:
+                    blank_pdf = create_blank_pdf(missing_pages)
+                    try:
+                        blank_settings = build_sumatra_print_settings(args.duplex, args.color, None, args.copies)
+                        print_with_sumatra(sumatra, blank_pdf, printer, blank_settings)
+                        print(f"  -> {missing_pages} leere Seite(n) zusätzlich gedruckt.")
+                    finally:
+                        blank_pdf.unlink(missing_ok=True)
         except subprocess.CalledProcessError as e:
             print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
         except Exception as e:
