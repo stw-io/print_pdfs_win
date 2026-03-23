@@ -11,6 +11,7 @@ Dieses Tool druckt alle PDFs in einem Ordner unter Windows – ohne manuell jede
   - Duplex (simplex / long-edge / short-edge)
   - Duplex-Sondermodus `fake` (manueller Duplex-Ablauf für HP LaserJet Pro MFP M479fnw)
   - Farbe (color / mono)
+  - Papierformat (z.B. A4 / A5 / Letter) über `--paper`
   - Seiten-Auswahl (z.B. "1-3,5,7-" oder "1,3")
   - Optional: fehlende Seiten als leere Seiten drucken (`--print-empty`)
   - Kopien
@@ -54,6 +55,10 @@ python .\print_pdfs_win.py "C:\PDFs" --printer "HP LaserJet M404"
 Duplex + Schwarzweiß
 ```powershell
 python .\print_pdfs_win.py "C:\PDFs" --duplex long-edge --color mono
+```
+Papierformat setzen (z.B. A5)
+```powershell
+python .\print_pdfs_win.py "C:\PDFs" --paper A5
 ```
 Manueller Duplexmodus für HP M479fnw (`fake`)
 ```powershell
@@ -125,6 +130,12 @@ Hinweis zu `--duplex fake`
   4. Zweiter Durchlauf: Dateien werden in umgekehrter Reihenfolge gedruckt; innerhalb jeder Datei werden gerade Seiten in umgekehrter Reihenfolge gedruckt.
   5. Nur für den zweiten Durchlauf: Falls eine Datei eine ungerade Seitenzahl hat, fügt das Skript automatisch eine leere Seite am Ende hinzu.
 - `--duplex fake` kann nicht mit `--pages` oder `--print-empty` kombiniert werden.
+
+Hinweis zu `--paper`
+
+- Mit `--paper` kann ein gewünschtes Druckformat übergeben werden, z.B. `A4`, `A5`, `A3`, `Letter`, `Legal`.
+- Das Format wird als Print-Setting an Sumatra übergeben (`paper=<Wert>`).
+- Für intern erzeugte leere Seiten (`--print-empty` oder Fake-Duplex-Ausgleichsseite) wird dieselbe Papiergröße verwendet.
 
 
 # PDF-Filter (nur bestimmte Dateien drucken)

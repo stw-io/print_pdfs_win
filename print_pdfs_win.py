@@ -94,7 +94,13 @@ def list_pdfs(
 
 # -------------------- Sumatra Drucken --------------------
 
-def build_sumatra_print_settings(duplex: str, color: str, pages: Optional[str], copies: int) -> Optional[str]:
+def build_sumatra_print_settings(
+    duplex: str,
+    color: str,
+    pages: Optional[str],
+    copies: int,
+    paper: Optional[str] = None,
+) -> Optional[str]:
     """
     Baut den String für SumatraPDF -print-settings.
     Typische Tokens:
@@ -137,6 +143,10 @@ def build_sumatra_print_settings(duplex: str, color: str, pages: Optional[str], 
     # Kopien
     if copies and copies > 1:
         parts.append(f"{copies}x")
+
+    # Papierformat (z.B. A4, A5, Letter)
+    if paper:
+        parts.append(f"paper={paper}")
 
     return ",".join(parts) if parts else None
 
@@ -218,7 +228,20 @@ def get_pdf_page_count(pdf_path: Path) -> int:
     return len(reader.pages)
 
 
-def create_blank_pdf(page_count: int) -> Path:
+def get_page_dimensions_for_format(paper: Optional[str]) -> Tuple[float, float]:
+    paper_sizes = {
+        "A4": (595, 842),
+        "A5": (420, 595),
+        "A3": (842, 1191),
+        "LETTER": (612, 792),
+        "LEGAL": (612, 1008),
+    }
+    if not paper:
+        return paper_sizes["A4"]
+    return paper_sizes.get(paper.upper(), paper_sizes["A4"])
+
+
+def create_blank_pdf(page_count: int, paper: Optional[str] = None) -> Path:
     try:
         from pypdf import PdfWriter
     except ImportError as e:
@@ -227,9 +250,10 @@ def create_blank_pdf(page_count: int) -> Path:
             "Installiere es mit: pip install pypdf"
         ) from e
 
+    width, height = get_page_dimensions_for_format(paper)
     writer = PdfWriter()
     for _ in range(page_count):
-        writer.add_blank_page(width=595, height=842)  # A4 in pt
+        writer.add_blank_page(width=width, height=height)
 
     with tempfile.NamedTemporaryFile(prefix="print-empty-", suffix=".pdf", delete=False) as tmp:
         tmp_path = Path(tmp.name)
@@ -238,7 +262,7 @@ def create_blank_pdf(page_count: int) -> Path:
     return tmp_path
 
 
-def create_pdf_with_trailing_blank(pdf_path: Path) -> Path:
+def create_pdf_with_trailing_blank(pdf_path: Path, paper: Optional[str] = None) -> Path:
     try:
         from pypdf import PdfReader, PdfWriter
     except ImportError as e:
@@ -251,7 +275,8 @@ def create_pdf_with_trailing_blank(pdf_path: Path) -> Path:
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
-    writer.add_blank_page(width=595, height=842)  # A4 in pt
+    width, height = get_page_dimensions_for_format(paper)
+    writer.add_blank_page(width=width, height=height)
 
     with tempfile.NamedTemporaryFile(prefix="print-fake-duplex-", suffix=".pdf", delete=False) as tmp:
         tmp_path = Path(tmp.name)
@@ -311,6 +336,12 @@ def main() -> int:
         help="Farbmodus (über Sumatra -print-settings)",
     )
     parser.add_argument("--pages", type=str, default=None, help='Seiten z.B. "1-3,5,7-" oder "1,3" (1-basiert)')
+    parser.add_argument(
+        "--paper",
+        type=str,
+        default=None,
+        help='Optionales Druckformat, z.B. "A4", "A5", "Letter"',
+    )
     parser.add_argument(
         "--print-empty",
         action="store_true",
@@ -387,7 +418,7 @@ def main() -> int:
         print(f"Keine passenden PDFs gefunden in: {folder}")
         return 0
 
-    sumatra_settings = build_sumatra_print_settings(args.duplex, args.color, args.pages, args.copies)
+    sumatra_settings = build_sumatra_print_settings(args.duplex, args.color, args.pages, args.copies, args.paper)
 
     print(f"Ordner:   {folder}")
     print(f"PDFs:     {len(pdfs)}")
@@ -396,6 +427,7 @@ def main() -> int:
     print(f"Duplex:   {args.duplex}")
     print(f"Farbe:    {args.color}")
     print(f"Seiten:   {args.pages or 'alle'}")
+    print(f"Papier:   {args.paper or 'Standard'}")
     print(f"Leer:     {args.print_empty}")
     print(f"Kopien:   {args.copies}")
     print(f"Filter:   {', '.join(args.filter) if args.filter else '-'}")
@@ -419,7 +451,7 @@ def main() -> int:
                 total_pages = get_pdf_page_count(pdf)
                 odd_pages = build_odd_pages(total_pages)
                 odd_expr = compress_pages(odd_pages)
-                settings = build_sumatra_print_settings("simplex", args.color, odd_expr or None, args.copies)
+                settings = build_sumatra_print_settings("simplex", args.color, odd_expr or None, args.copies, args.paper)
 
                 if args.dry_run:
                     if odd_expr:
@@ -459,14 +491,14 @@ def main() -> int:
                 print_pdf = pdf
                 printable_total = total_pages
                 if total_pages % 2 == 1:
-                    temp_pdf = create_pdf_with_trailing_blank(pdf)
+                    temp_pdf = create_pdf_with_trailing_blank(pdf, args.paper)
                     print_pdf = temp_pdf
                     printable_total = total_pages + 1
                     print("  -> ungerade Gesamtseitenzahl: eine leere Seite am Ende wird ergänzt (nur für geraden Durchlauf).")
 
                 even_pages = build_even_pages(printable_total, reverse=True)
                 even_expr = ",".join(str(p) for p in even_pages)
-                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies)
+                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies, args.paper)
 
                 if args.dry_run:
                     if even_expr:
@@ -505,7 +537,9 @@ def main() -> int:
                 missing_pages = len(requested_pages) - len(existing_pages)
 
                 existing_expr = compress_pages(existing_pages)
-                pdf_settings = build_sumatra_print_settings(args.duplex, args.color, existing_expr or None, args.copies)
+                pdf_settings = build_sumatra_print_settings(
+                    args.duplex, args.color, existing_expr or None, args.copies, args.paper
+                )
                 print(
                     f"  -> Seiten im PDF: {total_pages}, vorhanden: {len(existing_pages)}, fehlend: {missing_pages}"
                 )
@@ -526,9 +560,11 @@ def main() -> int:
                     print("  -> Original-PDF übersprungen (keine vorhandenen Seiten aus --pages).")
 
                 if missing_pages > 0:
-                    blank_pdf = create_blank_pdf(missing_pages)
+                    blank_pdf = create_blank_pdf(missing_pages, args.paper)
                     try:
-                        blank_settings = build_sumatra_print_settings(args.duplex, args.color, None, args.copies)
+                        blank_settings = build_sumatra_print_settings(
+                            args.duplex, args.color, None, args.copies, args.paper
+                        )
                         print_with_sumatra(sumatra, blank_pdf, printer, blank_settings)
                         print(f"  -> {missing_pages} leere Seite(n) zusätzlich gedruckt.")
                     finally:
