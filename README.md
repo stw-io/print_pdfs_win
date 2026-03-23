@@ -119,11 +119,11 @@ Hinweis zu `--duplex fake`
 
 - Der Wert `fake` ist für einen manuellen Duplex-Workflow gedacht (HP LaserJet Pro MFP M479fnw).
 - Ablauf:
-  1. Erster Durchlauf: Das Skript druckt pro Datei nur gerade Seiten.
+  1. Erster Durchlauf: Das Skript druckt pro Datei nur ungerade Seiten.
   2. Danach fordert das Skript auf, den Stapel um 180° in der horizontalen Ebene zu drehen und wieder einzulegen.
   3. Eingabe `y`: zweiter Durchlauf startet. Eingabe `n`: Skript beendet sofort.
   4. Zweiter Durchlauf: Dateien werden in umgekehrter Reihenfolge gedruckt; innerhalb jeder Datei werden gerade Seiten in umgekehrter Reihenfolge gedruckt.
-  5. Falls eine Datei eine ungerade Seitenzahl hat, fügt das Skript für den zweiten Durchlauf automatisch eine leere Seite am Ende hinzu.
+  5. Nur für den zweiten Durchlauf: Falls eine Datei eine ungerade Seitenzahl hat, fügt das Skript automatisch eine leere Seite am Ende hinzu.
 - `--duplex fake` kann nicht mit `--pages` oder `--print-empty` kombiniert werden.
 
 

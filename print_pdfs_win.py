@@ -283,6 +283,10 @@ def build_even_pages(total_pages: int, reverse: bool = False) -> List[int]:
     return list(range(2, total_pages + 1, 2))
 
 
+def build_odd_pages(total_pages: int) -> List[int]:
+    return list(range(1, total_pages + 1, 2))
+
+
 # -------------------- Main --------------------
 
 def main() -> int:
@@ -408,26 +412,26 @@ def main() -> int:
             print("Fehler: --duplex fake kann nicht mit --print-empty kombiniert werden.", file=sys.stderr)
             return 2
 
-        print("Modus fake-duplex: 1. Durchlauf (nur gerade Seiten, normale Dateireihenfolge).")
+        print("Modus fake-duplex: 1. Durchlauf (nur ungerade Seiten, normale Dateireihenfolge).")
         for i, pdf in enumerate(pdfs, start=1):
             print(f"[1/2] [{i}/{len(pdfs)}] {pdf.name}")
             try:
                 total_pages = get_pdf_page_count(pdf)
-                even_pages = build_even_pages(total_pages, reverse=False)
-                even_expr = compress_pages(even_pages)
-                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies)
+                odd_pages = build_odd_pages(total_pages)
+                odd_expr = compress_pages(odd_pages)
+                settings = build_sumatra_print_settings("simplex", args.color, odd_expr or None, args.copies)
 
                 if args.dry_run:
-                    if even_expr:
-                        print(f"  -> würde drucken (gerade Seiten): {pdf} (Seiten: {even_expr})")
+                    if odd_expr:
+                        print(f"  -> würde drucken (ungerade Seiten): {pdf} (Seiten: {odd_expr})")
                     else:
-                        print("  -> keine geraden Seiten vorhanden, Datei wird übersprungen.")
+                        print("  -> keine ungeraden Seiten vorhanden, Datei wird übersprungen.")
                 else:
-                    if even_expr:
+                    if odd_expr:
                         print_with_sumatra(sumatra, pdf, printer, settings)
-                        print("  -> gerade Seiten gedruckt.")
+                        print("  -> ungerade Seiten gedruckt.")
                     else:
-                        print("  -> keine geraden Seiten vorhanden, Datei übersprungen.")
+                        print("  -> keine ungeraden Seiten vorhanden, Datei übersprungen.")
             except subprocess.CalledProcessError as e:
                 print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
             except Exception as e:
@@ -458,7 +462,7 @@ def main() -> int:
                     temp_pdf = create_pdf_with_trailing_blank(pdf)
                     print_pdf = temp_pdf
                     printable_total = total_pages + 1
-                    print("  -> ungerade Seitenzahl: eine leere Seite am Ende wird ergänzt.")
+                    print("  -> ungerade Gesamtseitenzahl: eine leere Seite am Ende wird ergänzt (nur für geraden Durchlauf).")
 
                 even_pages = build_even_pages(printable_total, reverse=True)
                 even_expr = ",".join(str(p) for p in even_pages)
