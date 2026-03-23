@@ -118,6 +118,7 @@ def build_sumatra_print_settings(duplex: str, color: str, pages: Optional[str], 
         "long-edge": "duplexlong",
         "short-edge": "duplexshort",
         "tumble": "duplexshort",
+        "fake": None,
     }
     d = duplex_map.get(duplex)
     if d:
@@ -237,6 +238,28 @@ def create_blank_pdf(page_count: int) -> Path:
     return tmp_path
 
 
+def create_pdf_with_trailing_blank(pdf_path: Path) -> Path:
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as e:
+        raise RuntimeError(
+            "Für Duplex 'fake' wird das Python-Paket 'pypdf' benötigt. "
+            "Installiere es mit: pip install pypdf"
+        ) from e
+
+    reader = PdfReader(str(pdf_path))
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.add_blank_page(width=595, height=842)  # A4 in pt
+
+    with tempfile.NamedTemporaryFile(prefix="print-fake-duplex-", suffix=".pdf", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    with tmp_path.open("wb") as f:
+        writer.write(f)
+    return tmp_path
+
+
 def print_with_sumatra(sumatra_exe: str, pdf_path: Path, printer_name: str, print_settings: Optional[str]) -> None:
     """
     Druckt per SumatraPDF silent mit optionalen -print-settings.
@@ -253,6 +276,13 @@ def print_with_sumatra(sumatra_exe: str, pdf_path: Path, printer_name: str, prin
     subprocess.run(cmd + [str(pdf_path)], check=True)
 
 
+def build_even_pages(total_pages: int, reverse: bool = False) -> List[int]:
+    if reverse:
+        start = total_pages if total_pages % 2 == 0 else total_pages - 1
+        return list(range(start, 1, -2))
+    return list(range(2, total_pages + 1, 2))
+
+
 # -------------------- Main --------------------
 
 def main() -> int:
@@ -266,7 +296,7 @@ def main() -> int:
         "--duplex",
         type=str,
         default="default",
-        choices=["default", "simplex", "duplex", "long-edge", "short-edge", "tumble"],
+        choices=["default", "simplex", "duplex", "long-edge", "short-edge", "tumble", "fake"],
         help="Duplex-Modus (über Sumatra -print-settings)",
     )
     parser.add_argument(
@@ -369,6 +399,92 @@ def main() -> int:
     print(f"Settings: {sumatra_settings or '-'}")
     print(f"Dry-Run:  {args.dry_run}")
     print("")
+
+    if args.duplex == "fake":
+        if args.pages:
+            print("Fehler: --duplex fake kann nicht mit --pages kombiniert werden.", file=sys.stderr)
+            return 2
+        if args.print_empty:
+            print("Fehler: --duplex fake kann nicht mit --print-empty kombiniert werden.", file=sys.stderr)
+            return 2
+
+        print("Modus fake-duplex: 1. Durchlauf (nur gerade Seiten, normale Dateireihenfolge).")
+        for i, pdf in enumerate(pdfs, start=1):
+            print(f"[1/2] [{i}/{len(pdfs)}] {pdf.name}")
+            try:
+                total_pages = get_pdf_page_count(pdf)
+                even_pages = build_even_pages(total_pages, reverse=False)
+                even_expr = compress_pages(even_pages)
+                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies)
+
+                if args.dry_run:
+                    if even_expr:
+                        print(f"  -> würde drucken (gerade Seiten): {pdf} (Seiten: {even_expr})")
+                    else:
+                        print("  -> keine geraden Seiten vorhanden, Datei wird übersprungen.")
+                else:
+                    if even_expr:
+                        print_with_sumatra(sumatra, pdf, printer, settings)
+                        print("  -> gerade Seiten gedruckt.")
+                    else:
+                        print("  -> keine geraden Seiten vorhanden, Datei übersprungen.")
+            except subprocess.CalledProcessError as e:
+                print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
+            except Exception as e:
+                print(f"  !! Fehler: {e}", file=sys.stderr)
+
+        if not args.dry_run:
+            prompt = (
+                "\nBitte den Druckstapel um 180 Grad in der horizontalen Ebene drehen und "
+                "die Papiere wieder genau so in den Papiereinzug legen "
+                "(HP LaserJet Pro MFP M479fnw).\n"
+                "Fortfahren oder Abbrechen? (y = fortfahren, n = abbrechen): "
+            )
+            answer = input(prompt).strip().lower()
+            if answer != "y":
+                print("Abgebrochen durch Benutzer.")
+                return 0
+
+        print("\nModus fake-duplex: 2. Durchlauf (Dateien rückwärts, gerade Seiten rückwärts).")
+        reversed_pdfs = list(reversed(pdfs))
+        for i, pdf in enumerate(reversed_pdfs, start=1):
+            print(f"[2/2] [{i}/{len(reversed_pdfs)}] {pdf.name}")
+            temp_pdf: Optional[Path] = None
+            try:
+                total_pages = get_pdf_page_count(pdf)
+                print_pdf = pdf
+                printable_total = total_pages
+                if total_pages % 2 == 1:
+                    temp_pdf = create_pdf_with_trailing_blank(pdf)
+                    print_pdf = temp_pdf
+                    printable_total = total_pages + 1
+                    print("  -> ungerade Seitenzahl: eine leere Seite am Ende wird ergänzt.")
+
+                even_pages = build_even_pages(printable_total, reverse=True)
+                even_expr = ",".join(str(p) for p in even_pages)
+                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies)
+
+                if args.dry_run:
+                    if even_expr:
+                        print(f"  -> würde drucken (gerade Seiten rückwärts): {print_pdf} (Seiten: {even_expr})")
+                    else:
+                        print("  -> keine geraden Seiten vorhanden, Datei wird übersprungen.")
+                else:
+                    if even_expr:
+                        print_with_sumatra(sumatra, print_pdf, printer, settings)
+                        print("  -> zweite Runde gedruckt.")
+                    else:
+                        print("  -> keine geraden Seiten vorhanden, Datei übersprungen.")
+            except subprocess.CalledProcessError as e:
+                print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
+            except Exception as e:
+                print(f"  !! Fehler: {e}", file=sys.stderr)
+            finally:
+                if temp_pdf:
+                    temp_pdf.unlink(missing_ok=True)
+
+        print("\nFertig.")
+        return 0
 
     for i, pdf in enumerate(pdfs, start=1):
         print(f"[{i}/{len(pdfs)}] {pdf.name}")

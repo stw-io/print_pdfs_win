@@ -9,6 +9,7 @@ Dieses Tool druckt alle PDFs in einem Ordner unter Windows – ohne manuell jede
 - Druckt alle PDFs in einem Ordner (optional rekursiv)
 - Parameter für:
   - Duplex (simplex / long-edge / short-edge)
+  - Duplex-Sondermodus `fake` (manueller Duplex-Ablauf für HP LaserJet Pro MFP M479fnw)
   - Farbe (color / mono)
   - Seiten-Auswahl (z.B. "1-3,5,7-" oder "1,3")
   - Optional: fehlende Seiten als leere Seiten drucken (`--print-empty`)
@@ -53,6 +54,10 @@ python .\print_pdfs_win.py "C:\PDFs" --printer "HP LaserJet M404"
 Duplex + Schwarzweiß
 ```powershell
 python .\print_pdfs_win.py "C:\PDFs" --duplex long-edge --color mono
+```
+Manueller Duplexmodus für HP M479fnw (`fake`)
+```powershell
+python .\print_pdfs_win.py "C:\PDFs" --duplex fake --color mono
 ```
 Nur bestimmte Seiten (z.B. 1-3, 5, ab 7 bis Ende)
 ```powershell
@@ -109,6 +114,17 @@ Hinweis zu `--print-empty`
 
 Wenn `--print-empty` aktiv ist, muss `--pages` eine endliche Liste sein (z.B. `1,3,7-10`).
 Offene Bereiche wie `7-` sind dabei nicht erlaubt, weil die Anzahl fehlender Seiten sonst nicht bestimmbar ist.
+
+Hinweis zu `--duplex fake`
+
+- Der Wert `fake` ist für einen manuellen Duplex-Workflow gedacht (HP LaserJet Pro MFP M479fnw).
+- Ablauf:
+  1. Erster Durchlauf: Das Skript druckt pro Datei nur gerade Seiten.
+  2. Danach fordert das Skript auf, den Stapel um 180° in der horizontalen Ebene zu drehen und wieder einzulegen.
+  3. Eingabe `y`: zweiter Durchlauf startet. Eingabe `n`: Skript beendet sofort.
+  4. Zweiter Durchlauf: Dateien werden in umgekehrter Reihenfolge gedruckt; innerhalb jeder Datei werden gerade Seiten in umgekehrter Reihenfolge gedruckt.
+  5. Falls eine Datei eine ungerade Seitenzahl hat, fügt das Skript für den zweiten Durchlauf automatisch eine leere Seite am Ende hinzu.
+- `--duplex fake` kann nicht mit `--pages` oder `--print-empty` kombiniert werden.
 
 
 # PDF-Filter (nur bestimmte Dateien drucken)
