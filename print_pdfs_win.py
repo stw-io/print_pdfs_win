@@ -329,6 +329,13 @@ def main() -> int:
         help="Duplex-Modus (über Sumatra -print-settings)",
     )
     parser.add_argument(
+        "--fake-pass",
+        type=str,
+        default="both",
+        choices=["both", "front", "back"],
+        help='Nur mit --duplex fake: "both" (standard), "front" (nur ungerade/Vorderseite), "back" (nur gerade/Rückseite)',
+    )
+    parser.add_argument(
         "--color",
         type=str,
         default="default",
@@ -434,6 +441,8 @@ def main() -> int:
     print(f"Exclude:  {', '.join(args.exclude) if args.exclude else '-'}")
     print(f"Settings: {sumatra_settings or '-'}")
     print(f"Dry-Run:  {args.dry_run}")
+    if args.duplex == "fake":
+        print(f"FakePass: {args.fake_pass}")
     print("")
 
     if args.duplex == "fake":
@@ -444,32 +453,33 @@ def main() -> int:
             print("Fehler: --duplex fake kann nicht mit --print-empty kombiniert werden.", file=sys.stderr)
             return 2
 
-        print("Modus fake-duplex: 1. Durchlauf (nur ungerade Seiten, normale Dateireihenfolge).")
-        for i, pdf in enumerate(pdfs, start=1):
-            print(f"[1/2] [{i}/{len(pdfs)}] {pdf.name}")
-            try:
-                total_pages = get_pdf_page_count(pdf)
-                odd_pages = build_odd_pages(total_pages)
-                odd_expr = compress_pages(odd_pages)
-                settings = build_sumatra_print_settings("simplex", args.color, odd_expr or None, args.copies, args.paper)
+        if args.fake_pass in ("both", "front"):
+            print("Modus fake-duplex: 1. Durchlauf (nur ungerade Seiten, normale Dateireihenfolge).")
+            for i, pdf in enumerate(pdfs, start=1):
+                print(f"[1/2] [{i}/{len(pdfs)}] {pdf.name}")
+                try:
+                    total_pages = get_pdf_page_count(pdf)
+                    odd_pages = build_odd_pages(total_pages)
+                    odd_expr = compress_pages(odd_pages)
+                    settings = build_sumatra_print_settings("simplex", args.color, odd_expr or None, args.copies, args.paper)
 
-                if args.dry_run:
-                    if odd_expr:
-                        print(f"  -> würde drucken (ungerade Seiten): {pdf} (Seiten: {odd_expr})")
+                    if args.dry_run:
+                        if odd_expr:
+                            print(f"  -> würde drucken (ungerade Seiten): {pdf} (Seiten: {odd_expr})")
+                        else:
+                            print("  -> keine ungeraden Seiten vorhanden, Datei wird übersprungen.")
                     else:
-                        print("  -> keine ungeraden Seiten vorhanden, Datei wird übersprungen.")
-                else:
-                    if odd_expr:
-                        print_with_sumatra(sumatra, pdf, printer, settings)
-                        print("  -> ungerade Seiten gedruckt.")
-                    else:
-                        print("  -> keine ungeraden Seiten vorhanden, Datei übersprungen.")
-            except subprocess.CalledProcessError as e:
-                print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
-            except Exception as e:
-                print(f"  !! Fehler: {e}", file=sys.stderr)
+                        if odd_expr:
+                            print_with_sumatra(sumatra, pdf, printer, settings)
+                            print("  -> ungerade Seiten gedruckt.")
+                        else:
+                            print("  -> keine ungeraden Seiten vorhanden, Datei übersprungen.")
+                except subprocess.CalledProcessError as e:
+                    print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
+                except Exception as e:
+                    print(f"  !! Fehler: {e}", file=sys.stderr)
 
-        if not args.dry_run:
+        if args.fake_pass == "both" and not args.dry_run:
             prompt = (
                 "\nBitte den Druckstapel um 180 Grad in der horizontalen Ebene drehen und "
                 "die Papiere wieder genau so in den Papiereinzug legen "
@@ -481,43 +491,47 @@ def main() -> int:
                 print("Abgebrochen durch Benutzer.")
                 return 0
 
-        print("\nModus fake-duplex: 2. Durchlauf (Dateien rückwärts, gerade Seiten rückwärts).")
-        reversed_pdfs = list(reversed(pdfs))
-        for i, pdf in enumerate(reversed_pdfs, start=1):
-            print(f"[2/2] [{i}/{len(reversed_pdfs)}] {pdf.name}")
-            temp_pdf: Optional[Path] = None
-            try:
-                total_pages = get_pdf_page_count(pdf)
-                print_pdf = pdf
-                printable_total = total_pages
-                if total_pages % 2 == 1:
-                    temp_pdf = create_pdf_with_trailing_blank(pdf, args.paper)
-                    print_pdf = temp_pdf
-                    printable_total = total_pages + 1
-                    print("  -> ungerade Gesamtseitenzahl: eine leere Seite am Ende wird ergänzt (nur für geraden Durchlauf).")
+        if args.fake_pass in ("both", "back"):
+            back_header = "\nModus fake-duplex: 2. Durchlauf (Dateien rückwärts, gerade Seiten rückwärts)."
+            if args.fake_pass == "back":
+                back_header = "\nModus fake-duplex: manueller Rückseiten-Durchlauf (Dateien rückwärts, gerade Seiten rückwärts)."
+            print(back_header)
+            reversed_pdfs = list(reversed(pdfs))
+            for i, pdf in enumerate(reversed_pdfs, start=1):
+                print(f"[2/2] [{i}/{len(reversed_pdfs)}] {pdf.name}")
+                temp_pdf: Optional[Path] = None
+                try:
+                    total_pages = get_pdf_page_count(pdf)
+                    print_pdf = pdf
+                    printable_total = total_pages
+                    if total_pages % 2 == 1:
+                        temp_pdf = create_pdf_with_trailing_blank(pdf, args.paper)
+                        print_pdf = temp_pdf
+                        printable_total = total_pages + 1
+                        print("  -> ungerade Gesamtseitenzahl: eine leere Seite am Ende wird ergänzt (nur für geraden Durchlauf).")
 
-                even_pages = build_even_pages(printable_total, reverse=True)
-                even_expr = ",".join(str(p) for p in even_pages)
-                settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies, args.paper)
+                    even_pages = build_even_pages(printable_total, reverse=True)
+                    even_expr = ",".join(str(p) for p in even_pages)
+                    settings = build_sumatra_print_settings("simplex", args.color, even_expr or None, args.copies, args.paper)
 
-                if args.dry_run:
-                    if even_expr:
-                        print(f"  -> würde drucken (gerade Seiten rückwärts): {print_pdf} (Seiten: {even_expr})")
+                    if args.dry_run:
+                        if even_expr:
+                            print(f"  -> würde drucken (gerade Seiten rückwärts): {print_pdf} (Seiten: {even_expr})")
+                        else:
+                            print("  -> keine geraden Seiten vorhanden, Datei wird übersprungen.")
                     else:
-                        print("  -> keine geraden Seiten vorhanden, Datei wird übersprungen.")
-                else:
-                    if even_expr:
-                        print_with_sumatra(sumatra, print_pdf, printer, settings)
-                        print("  -> zweite Runde gedruckt.")
-                    else:
-                        print("  -> keine geraden Seiten vorhanden, Datei übersprungen.")
-            except subprocess.CalledProcessError as e:
-                print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
-            except Exception as e:
-                print(f"  !! Fehler: {e}", file=sys.stderr)
-            finally:
-                if temp_pdf:
-                    temp_pdf.unlink(missing_ok=True)
+                        if even_expr:
+                            print_with_sumatra(sumatra, print_pdf, printer, settings)
+                            print("  -> zweite Runde gedruckt.")
+                        else:
+                            print("  -> keine geraden Seiten vorhanden, Datei übersprungen.")
+                except subprocess.CalledProcessError as e:
+                    print(f"  !! Druck fehlgeschlagen (Sumatra Exitcode): {e.returncode}", file=sys.stderr)
+                except Exception as e:
+                    print(f"  !! Fehler: {e}", file=sys.stderr)
+                finally:
+                    if temp_pdf:
+                        temp_pdf.unlink(missing_ok=True)
 
         print("\nFertig.")
         return 0
@@ -530,11 +544,13 @@ def main() -> int:
 
             pdf_settings = sumatra_settings
             missing_pages = 0
+            should_print_original_pdf = True
             if args.print_empty and args.pages:
                 requested_pages = parse_pages_for_print_empty(args.pages)
                 total_pages = get_pdf_page_count(pdf)
                 existing_pages = [p for p in requested_pages if p <= total_pages]
                 missing_pages = len(requested_pages) - len(existing_pages)
+                should_print_original_pdf = len(existing_pages) > 0
 
                 existing_expr = compress_pages(existing_pages)
                 pdf_settings = build_sumatra_print_settings(
@@ -545,7 +561,7 @@ def main() -> int:
                 )
 
             if args.dry_run:
-                if pdf_settings:
+                if should_print_original_pdf:
                     print(f"  -> würde drucken: {pdf} (Settings: {pdf_settings})")
                 else:
                     print(f"  -> überspringe Original-PDF (keine vorhandenen Seiten aus --pages)")
@@ -553,7 +569,7 @@ def main() -> int:
                 if missing_pages > 0:
                     print(f"  -> würde zusätzlich {missing_pages} leere Seite(n) drucken")
             else:
-                if pdf_settings:
+                if should_print_original_pdf:
                     print_with_sumatra(sumatra, pdf, printer, pdf_settings)
                     print("  -> Druckauftrag an Spooler übergeben (Original-PDF).")
                 else:
