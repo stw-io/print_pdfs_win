@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 
 # -------------------- SumatraPDF Finden --------------------
@@ -301,6 +301,21 @@ def print_with_sumatra(sumatra_exe: str, pdf_path: Path, printer_name: str, prin
     subprocess.run(cmd + [str(pdf_path)], check=True)
 
 
+def ask_fake_duplex_continue(
+    prompt: str,
+    input_func: Callable[[str], str] = input,
+    print_func: Callable[[str], None] = print,
+) -> bool:
+    """Fragt so lange nach, bis y (weiter) oder n (abbrechen) eingegeben wurde."""
+    while True:
+        answer = input_func(prompt).strip().lower()
+        if answer == "y":
+            return True
+        if answer == "n":
+            return False
+        print_func("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
+
+
 def build_even_pages(total_pages: int, reverse: bool = False) -> List[int]:
     if reverse:
         start = total_pages if total_pages % 2 == 0 else total_pages - 1
@@ -486,8 +501,7 @@ def main() -> int:
                 "(HP LaserJet Pro MFP M479fnw).\n"
                 "Fortfahren oder Abbrechen? (y = fortfahren, n = abbrechen): "
             )
-            answer = input(prompt).strip().lower()
-            if answer != "y":
+            if not ask_fake_duplex_continue(prompt):
                 print("Abgebrochen durch Benutzer.")
                 return 0
 
